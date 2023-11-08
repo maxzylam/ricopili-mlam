@@ -1,14 +1,5 @@
-#!/usr/bin/env perl
+#!/usr/bin/perl
 use strict;
-
-#############################
-# load utility functions
-#############################
-
-use FindBin;
-use lib "$FindBin::Bin";
-use Ricopili::Utils qw(trans);
-
 my $version = "1.0.0";
 my $progname = $0;
 $progname =~ s!^.*/!!;
@@ -21,16 +12,34 @@ my $command_line = "$progname @ARGV";
 #############################
 ## log command
 
-#my $past_file = $ENV{HOME}."/areator_info";
-#my $pwd_loc = $ENV{PWD};
+my $past_file = $ENV{HOME}."/areator_info";
+my $pwd_loc = $ENV{PWD};
 
-#die $! unless open FILE, ">> $past_file";
-#print FILE "$pwd_loc\t$command_line\n";
-#close FILE;
+die $! unless open FILE, ">> $past_file";
+print FILE "$pwd_loc\t$command_line\n";
+close FILE;
 
 #############################
 # read config file
 #############################
+
+my $conf_file = $ENV{HOME}."/ricopili.conf";
+my %conf = ();
+
+die $!."($conf_file)" unless open FILE, "< $conf_file";
+while (my $line = <FILE>){
+    my @cells = split /\s+/, $line;
+    $conf{$cells[0]} = $cells[1];
+}
+close FILE;
+
+sub trans {
+    my ($expr)=@_;
+    unless (exists $conf{$expr}) {
+	die "config file without entry: $expr\n";
+    }
+    $conf{$expr};
+}
 
 my $ploc = &trans("p2loc");
 #my $hvloc = &trans("hvloc");
@@ -41,7 +50,7 @@ my $sloc = &trans("sloc");
 ####################################################
 
 
-my $pth =1.0e-04;;
+my $pth =4;
 my $r2th =.2;
 my $window_size =3000;
 
@@ -60,15 +69,10 @@ my $fre1col = 11;
 my $fre2col = 12;
 my $faicol = 8;
 my $ngtcol = 9;
-my $popname = "EUR";
-
-#my $hmicol = 14;
+my $hmicol = 14;
 my $detcol_beg = 14;
 my $out_name = "areator_out";
 
-my $ncacol = 17;
-my $ncocol = 18;
-my $neffcol = 19;
 
 
 
@@ -87,11 +91,8 @@ if (1){
     $fre2col = 7;
     $faicol = 13;
     $ngtcol = 12;
-#    $hmicol = 12;
+    $hmicol = 12;
     $detcol_beg = 18;
-    $ncacol = 17;
-    $ncocol = 18;
-    $neffcol = 19;
 }
 
 
@@ -113,7 +114,7 @@ version: $version
   --cond STRING    name of file describing conditional analysis (directory and comand)
   --1KG            1KG positions
   --pth INT        threshold, default $pth
-  --p2th INT        second threshold, be careful about this one
+  --p2th INT        second threshold, only if specifically wished, no log transformation
   --nohead         no header
 
   --phase2        take HM Phase 2
@@ -143,9 +144,7 @@ version: $version
 
   --noxls        helpful if output files to long
 
-  --popname STRING  ancestry EUR,EAS,SAS,AFR,AMR
 
-  --debug        extended output
 
  best-file: gzipped best-file
  
@@ -187,7 +186,7 @@ GetOptions(
     "best=s"=> \my $bestfile,
     "mhc1"=> \my $mhc1,
     "out=s"=> \$out_name,
-    "pth=f"=> \$pth,
+    "pth=i"=> \$pth,
     "p2th=f"=> \my $p2th_val,
     "window=i"=> \$window_size,
     "cond=s"=> \my $cond_name,
@@ -204,7 +203,6 @@ GetOptions(
     "r2th=f"=> \$r2th,
     "prekno=s"=> \my $prekno_file,
     "noxls"=> \my $noxls,
-    "debug"=> \my $debug,
     );
 
 
@@ -212,40 +210,27 @@ GetOptions(
 
 
 die "$usage" if ($help);
-
 $out_name = $bestfile if ($out_name eq "areator_out");
 die "$usage" unless ($bestfile);
-#my $pth = 10**(-$pth);
+my $pth = 10**(-$pth);
 my $pth2 = 10*$pth;
-if ($pth > 0.01) {
-    $pth=0.01;
-    $pth2=1;
-}
-if ($pth2 > 1){
-    $pth2 = 1 ;
-}
-
+$pth2 = 0.01 if ($pth2 > .01);
 if ($pth > .01) {
-    print "be careful with high pvalues, this script is not very efficient in clumping\n" if ($debug);
+    print "use clumper for high p-thresholds\n";
 }
 
 if ($p2th_val){
-    print "be careful with manually setting p2th\n" if ($debug);
     $pth2 = $p2th_val;
+
 }
-
-print "pth: $pth\n" if ($debug);
-print "pth2: $pth2\n" if ($debug);
-
-#exit;
 #print "pth2: $pth2\n";
 #sleep(10);
 
 ###print "first111111\n";
-use lib $ENV{rp_perlpackages};
+
 use Compress::Zlib ;
 #use lib '/home/gwas/bin/Spreadsheet-WriteExcel-2.25/blib/lib';
-use lib $ENV{rp_perlpackages}.'/Spreadsheet-WriteExcel-2.40/lib';
+use lib $ENV{rp_perlpackages}.'/Spreadsheet-WriteExcel-2.40/blib/lib';
 #use lib '/psych/genetics_data/ripke/references_from_debakkerscratch/perl_modules/Spreadsheet-WriteExcel-2.37/blib/lib';
  use Spreadsheet::WriteExcel;                             # Step 0
 
@@ -372,14 +357,13 @@ my @prekno_arr;
 my %prekno_hash;
 my %prekno_txt;
 if ($prekno_file) {
-    print "start reading prekno-file\n" if ($debug);
+    print "start reading prekno-file\n";
     die ("$prekno_file not existing") unless open PF, "< $prekno_file";
     while (my $line =<PF>){
 	my @cells = @{&split_line_ref(\$line)};
 	push @prekno_arr,$cells[0];
 	if ($cells[5]) {
-#	    unless ($prekno_txt{$cells[0]} =~ /$cells[5]/) {
-	    unless ($prekno_txt{$cells[0]} eq $cells[5]) {
+	    unless ($prekno_txt{$cells[0]} =~ /$cells[5]/) {
 		next if ($cells[4] > 5.0e-08);
 		unless (exists $prekno_txt{$cells[0]}) {
 		    $prekno_txt{$cells[0]} .= "$cells[0];$cells[5]($cells[4])";
@@ -395,7 +379,7 @@ if ($prekno_file) {
 	}
     }
     close PF;
-    print "finished reading prekno-file\n" if ($debug);
+    print "finished reading prekno-file\n";
 }
 
 
@@ -411,7 +395,7 @@ if ($prekno_file) {
 ######################################
 my $count_p=0;
 if ($check){
-    print "$usage\n" ;
+    print "$usage\n";
     print "SNPCOL\tPCOL\tCHRCOL\tPOSCOL\n";
 
     my $begz = gzopen("$bestfile", "rb")  or die "Cannot open $bestfile: $gzerrno\n" ;
@@ -457,7 +441,7 @@ if (0) {
     }
 }
 
-print "$workdir\n" if ($debug);
+print "$workdir\n";
 
 use File::Path;
 use Cwd;
@@ -488,7 +472,7 @@ else {
 
 my $gene_list_0610_plink = "$hapmap_ref_root/debakker/0610/refGene_0610.txt";
 
-my @refgene_files = `ls -t $refdir/refGene*`;
+my @refgene_files = `ls $refdir/refGene*`;
 if (@refgene_files > 0) {
     $gene_list_0610_plink = $refgene_files[0];
     chomp ($gene_list_0610_plink);
@@ -520,7 +504,7 @@ if (0) {
     &mysystem("gzip -c $bestbasic > $bestfile_path");
 }
 
-print "create best_basic out of: $bestfile_path\n" if ($debug);
+print "create best_basic out of: $bestfile_path\n";
 
 my %chr_hash ;
 my %bb_hash ;
@@ -546,8 +530,7 @@ while ($ns == 0) {
 	}
     }
     
-    print SF $cells[$snpcol-1]."\tP\n";
-#    print SF $cells[$snpcol-1]."\t".$cells[$pcol-1]."\n";
+    print SF $cells[$snpcol-1]."\t".$cells[$pcol-1]."\n";
     print BB "@cells\n";
     
 
@@ -565,7 +548,7 @@ while ($ns == 0) {
     $bb_head .= " ".$cells[$fre1col-1];
     $bb_head .= " ".$cells[$fre2col-1];
     $bb_head .= " INFO";
-    $bb_head .= " (Nca,Nco,Neff)Dir";
+    $bb_head .= " Dir";
     $bb_head .= " ngt";
     $bb_head .= " LD-friends($r2th).p$pth2";
     $bb_head .= " range.left";
@@ -582,7 +565,6 @@ while ($ns == 0) {
 	
     $bb_head .= " gwas_catalog_span.6";
     $bb_head .= " genes.6.50kb(dist2index)";
-    $bb_head .= " N.genes.6.50kb";
   
     
     my $ns_loc = 0;
@@ -596,7 +578,7 @@ while ($ns == 0) {
 #    print "atcu rows r\n";
 	
 #	next if ($cells[$pcol-1] > .05 || $cells[$pcol-1] eq "NA" || $cells[$pcol-1] == 0);
-	next if ($cells[$pcol-1] > $pth || $cells[$pcol-1] eq "NA" || $cells[$pcol-1] == 0);
+	next if ($cells[$pcol-1] > $pth2 || $cells[$pcol-1] eq "NA" || $cells[$pcol-1] == 0);
 	
 	if ($onechr) {
 	    next if ($cells[$chrcol-1] != $onechr);
@@ -634,25 +616,12 @@ while ($ns == 0) {
 	$bb_hash{$cells[$snpcol-1]} .= " ".$cells[$fre1col-1];
 	$bb_hash{$cells[$snpcol-1]} .= " ".$cells[$fre2col-1];
 	$bb_hash{$cells[$snpcol-1]} .= " ".$cells[$qualicol-1];
-
-	$bb_hash{$cells[$snpcol-1]} .= " ";
-	## add NCa, Nco, Neff
-	if ($cells[$neffcol-1] ne "") {
-	    $bb_hash{$cells[$snpcol-1]} .= "(".$cells[$ncacol-1];
-	    $bb_hash{$cells[$snpcol-1]} .= ",".$cells[$ncocol-1];
-	    $bb_hash{$cells[$snpcol-1]} .= ",".$cells[$neffcol-1].")";
-	}
-
-	## directional column only if there is info
 	if ($cells[$faicol-1] ne "") {
-	    $bb_hash{$cells[$snpcol-1]} .= $cells[$faicol-1];
+	    $bb_hash{$cells[$snpcol-1]} .= " ".$cells[$faicol-1];
 	}
 	else {
-	    $bb_hash{$cells[$snpcol-1]} .= $cells[$qualicol-1];
+	    $bb_hash{$cells[$snpcol-1]} .= " ".$cells[$qualicol-1];
 	}
-
-
-	
 	$bb_hash{$cells[$snpcol-1]} .= " ".$cells[$ngtcol-1];
 #	print 	$bb_hash{$cells[$snpcol-1]} ;
 #	print 	"\n" ;
@@ -667,20 +636,16 @@ while ($ns == 0) {
     $begz -> gzclose();
     close SF;
     close BB;
-    print "number of SNPs with above thresholds: $ns\n" if ($debug);
     if ($ns == 0) {
 	$pth = $pth * 10;
 	$pth2 = $pth2 * 10;
-	print " -> new thresholds: p-th: $pth; p2-th: $pth2\n" if ($debug);
-
-	if ($pth > 1){
-	    print "something is wrong with the pvalues in the danerfile, please check (also --debug)!!!\n";
-	    die;
-	}
+	$pth2 = 0.01 if ($pth2 > .01);
+	print "new p-th: $pth\n";
+	die if ($pth > 1);
     }
 }
-#print "final thresholds: p-th: $pth; p2-th: $pth2\n" if ($debug);
-#exit;
+#print "fuck it\n";
+#exit;;
 
 
 
@@ -703,7 +668,7 @@ if ($ns ==0) {
 
 my @chro ;
 foreach my $chr_loc (sort keys %chr_hash){
-    print "this chromosome is in: $chr_loc\n" if ($debug);
+    print "this chromosome is in: $chr_loc\n";
     push @chro, $chr_loc;
 }
 #@chro = `cut -f$chrcol -d " " $bestbasic | sort | uniq | grep -v CHR`;#
@@ -723,18 +688,17 @@ my %bestsnps = ();
 #######################################
 #### genes in clumps
 
-#my %gene_hash = ();
-#my %range_hash = ();
+my %gene_hash = ();
+my %range_hash = ();
 
-print  "reference gene_list: $gene_list_0610_plink\n" if ($debug);
+print  "reference gene_list: $gene_list_0610_plink\n";
 unless (-e "refGene.loc") {
-    print "create local gene list\n" if ($debug);
+    print "create local gene list\n";
     die $! unless open GI, "< $gene_list_0610_plink";
     die $! unless open GO, "> refGene.loc.tmp";
     while (my $line = <GI>){
 	my @cells = @{&split_line_ref(\$line)};
 	$cells[0] =~ s/chr//;
-	$cells[0] =~ s/_random//;
 
 	print GO "$cells[0]";
 	print GO " $cells[2]";
@@ -756,7 +720,7 @@ my @gene_stop_arr = ();
 &mysystem("mv refGene.loc.sorted.tmp  refGene.loc.sorted");
 
 
-print "create gene arrays\n" if ($debug);
+print "create gene arrays\n";
 die $! unless open GI, "< refGene.loc.sorted";
 while (my $line = <GI>){
     my @cells = @{&split_line_ref(\$line)};
@@ -783,7 +747,7 @@ close GI;
 
 if ($pliclu) {
 
-    print "plink-clump\n" if ($debug);
+    print "plink-clump\n";
 
     die $! unless open LDA, "> $out_name.clump.areator";
     print LDA "$bb_head\n";
@@ -809,82 +773,32 @@ if ($pliclu) {
 	
 	unless (-e "chr$chr.hv.ped.LD") {
 	    die unless ($refdir);
+	    my $bfile_sc = `ls $refdir/*chr$chr.*bed`;
 
 
-	    my $bfile_sc = "";
-
-	    if ($chr == 23) {
-		$chr = "X";
-	    }
-	    print "trying to find reference for $chr\n" if ($debug);
-	    
-		
-	    if (-e "$refdir/reference_templ") {
-		my $out_template = `grep bfile_template $refdir/reference_templ`;
-		$out_template =~ s/bfile_template[ ]+//;
-		chomp($out_template);
-#		print "out: $out_template\n";
-		$bfile_sc = "$refdir/$out_template";
-		$bfile_sc =~ s/XXX/$chr/;
-#		$bfile_sc .= ".impute.plink.$popname.bed";
-#		print "bf: $bfile_sc\n";
-
-	    }
-	    else {
-		$bfile_sc = `ls $refdir/*chr$chr.*bed`;
-
-
-		if ($bfile_sc eq "") {
-		    print "Warning: file <$bfile_sc.bed> not existing\n" if ($debug);
-		    my $chr_part = "$chr"."_";
-		    $bfile_sc = `ls $refdir/my*chr$chr_part*bed`;
-		}
-		
-#		print $bfile_sc."\n";
-		
-		if ($bfile_sc eq "") {
-		    print "Warning: file <$bfile_sc.bed> not existing\n" if ($debug);
-		    my $chr_part = "$chr"."_";
-		    $bfile_sc = `ls $refdir/*chr$chr_part*plink.bed`;
-		}
-		
-#		print $bfile_sc."\n";
-		
-		if ($bfile_sc eq "") {
-		    my $chr_part = "$chr"."_";
-		    $bfile_sc = `ls $refdir/*chr$chr_part*.bed`;
-		}
-		
-#		print $bfile_sc."\n";
-		
-		if ($bfile_sc eq "") {
-		    print "Warning: file <$bfile_sc.bed> not existing\n" if ($debug);
-		    my $chr_part = "window.$chr.";
-		    $bfile_sc = `ls $refdir/*$chr_part*bed`;
-		}
-		
-#		print $bfile_sc."\n";
-
-		
-#		print "$bfile_sc\n";
-#		sleep(10);
+	    if ($bfile_sc eq "") {
+		my $chr_part = "$chr"."_";
+		$bfile_sc = `ls $refdir/my*chr$chr_part*bed`;
 	    }
 
-	    
+
+
+	    if ($bfile_sc eq "") {
+		my $chr_part = "$chr"."_";
+		$bfile_sc = `ls $refdir/*chr$chr_part*bed`;
+	    }
+	    if ($bfile_sc eq "") {
+		my $chr_part = "window.$chr.";
+		$bfile_sc = `ls $refdir/*$chr_part*bed`;
+	    }
+#	    print "$bfile_sc\n";
+#	    sleep(10);
+	    if ($bfile_sc eq "") {
+		die "no plink binary for this chromosome";
+	    }
 	    chomp($bfile_sc);
 	    $bfile_sc =~ s/.bed$//;
 
-	    
-	    if (-e "$bfile_sc.bed") {
-		print "using $bfile_sc\n" if ($debug);
-	    }
-	    else {
-		print "Error: file <$bfile_sc.bed> not existing\n" if ($debug);
-		exit;
-	    }
-
-
-	    
 	    my @bfile_sc_arr = split "\n", $bfile_sc;
 
 	    if (@bfile_sc_arr != 1) {
@@ -893,7 +807,7 @@ if ($pliclu) {
 	    }
 
 
-	    &mysystem_nodie ("$ploc/plink --silent --memory 2000 --bfile $bfile_sc --make-bed --extract $snpfile --out $out_name.window.$chr") unless (-e "$out_name.window.$chr.bim");
+	    &mysystem_nodie ("$ploc/plink --memory 2000 --bfile $bfile_sc --make-bed --extract $snpfile --out $out_name.window.$chr") unless (-e "$out_name.window.$chr.bim");
 	    next unless (-e "$out_name.window.$chr.bim");
 
 	    unless (-e "refGene.loc.chr$chr") {
@@ -911,12 +825,12 @@ if ($pliclu) {
 
 
 #	    my $sys = "$ploc/plink --bfile $out_name.window.$chr --clump $snpfile --clump-verbose --clump-p1 $pth --clump-p2 $pth2 --clump-r2 $r2th --clump-kb $window_size --clump-range refGene.loc --clump-range-border 100 --out $out_name.clump.chr$chr" ;
-	    my $sys = "$ploc/plink --silent --memory 2000 --bfile $out_name.window.$chr --clump $snpfile --clump-verbose --clump-p1 $pth --clump-p2 $pth2 --clump-r2 $r2th --clump-kb $window_size  --out $out_name.clump.chr$chr  --clump-range refGene.loc.chr$chr --clump-range-border 100" ;
+	    my $sys = "$ploc/plink --memory 2000 --bfile $out_name.window.$chr --clump $snpfile --clump-verbose --clump-p1 $pth --clump-p2 $pth2 --clump-r2 $r2th --clump-kb $window_size  --out $out_name.clump.chr$chr  --clump-range refGene.loc.chr$chr --clump-range-border 100" ;
 
 	    ## plink2 does not like --clump-range (if the file is  too long)
 
 
-	    print "$sys\n" if ($debug);
+	    print "$sys\n";
 #	    exit;
 
 	    if (-e "$out_name.clump.chr$chr.clumped") {
@@ -924,21 +838,13 @@ if ($pliclu) {
 
 #		my @log_str = `tail -2 $out_name.clump.chr$chr.log`;
 #		my @log_str = `tail -3 $out_name.clump.chr$chr.log`; ## plink2
-		my @log_str = `tail -5 $out_name.clump.chr$chr.log`; ## plink2
+		my @log_str = `tail -4 $out_name.clump.chr$chr.log`; ## plink2
 #		unless ($log_str[0] =~ /Analysis finished/) {
 #		print "$log_str[0]\n";
 		unless ($log_str[0] =~ /Results written/) {  ## plink2
 		    unless ($log_str[1] =~ /Results written/) {  ## for longer lines
-			unless ($log_str[2] =~ /Results written/) {  ## for longer lines
-
-
-
-
-
-			
-			    print "Error: clumping not successfulL: see $out_name.clump.chr$chr.log\n";
-			    exit;
-			}
+			print "Error: clumping not successfulL: see $out_name.clump.chr$chr.log\n";
+			exit;		
 		    }
 		}
 
@@ -953,7 +859,7 @@ if ($pliclu) {
 		if (-e "$out_name.clump.chr$chr.log") {
 		    my @log_str = `tail -3 $out_name.clump.chr$chr.log`; ## plink2
 		    if ($log_str[0] =~ /Warning: No significant/) {  ## plink2
-			print "chromosome $chr without significant index SNPs\n" if ($debug);
+			print "chromosome $chr without significant index SNPs\n";
 		    }
 		    else {
 			print "Error: something went wrong with clumping chromosome $chr: $sys\n";
@@ -964,11 +870,11 @@ if ($pliclu) {
 
 	    }
 	    else {
-#		&mysystem ("cp $out_name.clump.chr$chr.clumped $rootdir");
+		&mysystem ("cp $out_name.clump.chr$chr.clumped $rootdir");
 		
 #	    &mysystem_nodie ("$ploc/plink --bfile $bfile_sc --clump $snpfile --clump-verbose --clump-p1 $pth --clump-p2 $pth --clump-r2 $r2th --clump-kb $window_size --out $out_name");
 		
-		print "first chr $chr\n" if ($debug);
+		print "first chr $chr\n";
 
 #	    exit;
 
@@ -1075,7 +981,7 @@ if ($pliclu) {
 			    $ld_str .="$lsnp($ld_hash{$lsnp}/$dist_hash{$lsnp}),";
 			    if (exists $prekno_txt{$lsnp}) {
 
-				if ($debug) {
+				if (0) {
 				    print "$prekno_txt{$lsnp}\n";
 				    print "dist: $dist_hash{$lsnp}\n";
 				    print "left: $span_left_6\n";
@@ -1161,7 +1067,6 @@ if ($pliclu) {
 			my $right_m = $index_pos + $span_right_6*1000 ;
 			my %gene_hash= ();
 			my $gene_str = "";
-			my $Ngenes = 0;
 			foreach my $ac (0..$#name_arr_loc) {
 #			    print $name_arr_loc[$ac];
 #			    print " ".$star_arr_loc[$ac];
@@ -1189,7 +1094,6 @@ if ($pliclu) {
 					
 #				    print $name_loc."(".$dist.")"."\n";
 					$gene_str .= ",".$name_loc."(".$dist.")";
-					$Ngenes++;
 					$gene_hash{$name_loc} = 1;
 				    }
 				    
@@ -1203,14 +1107,13 @@ if ($pliclu) {
 
 			print LDA " ".$prekno_out_2;
 			print LDA " ".$gene_str;
-			printf LDA " %03d",$Ngenes;
 
 
 
 
 			print LDA "\n";
 
-			if ($debug) {
+			if (0) {
 			    print "chr: $chr\n";
 			    print $bb_hash{$index};
 			    print " ".$range;
@@ -1339,8 +1242,7 @@ if ($pliclu) {
     unless ($noxls) {
 	&mysystem ("txt2xls --pcol 3 --cogr 4,12,13,16 --txt $out_name.clump.areator.sorted.1mhc --xls $out_name.clump.areator.sorted.1mhc.xls");
     }
-    &mysystem ("rm -r $workdir");
-    print "enough is enough\n" if ($debug);
+    print "enough is enough\n";
     exit;
 }
 

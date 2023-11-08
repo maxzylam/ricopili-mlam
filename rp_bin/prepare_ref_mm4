@@ -1,0 +1,99 @@
+#!/usr/bin/env perl 
+# vim:sw=4
+
+use strict;
+use warnings;
+use Getopt::Long;
+
+# Command-line options
+
+my $progname = $0;
+$progname =~ s!^.*/!!;
+
+my $cpus = 1;
+my $debug = 0;
+
+GetOptions( 
+    "help" => \my $help,
+    "cpus=i" => \$cpus,
+    );
+
+
+if ($help || @ARGV == 0){
+    print STDERR <<EOF;
+SYNOPSIS
+
+    $progname --compress-reference reference.{sav,bcf,vcf.gz} > reference.msav
+    $progname [--help] [--cpus=N] FILE.vcf.gz ...
+
+DESCRIPTION
+
+    Prepare genotype reference files for use with MINIMAC4 pipeline.
+    Specifically, for each argument FILE.vcf.gz, the following files are created
+    in the same directory:
+    
+        * FILE.msav -- a Minimac4 version of the VCF file
+
+    The tool will also work with VCF files that end just with .gz, not .vcf.gz,
+    although this is discouraged.
+
+    Note that the script processes the files sequentially, except the --cpu=N
+    option that is passed to Minimac3. To achieve parallelism, split VCF files
+    into chunks and distribute across multiple invocations of this script.
+EOF
+    exit 2;
+}
+
+# Reading the config file
+
+#############################
+# load utility functions
+#############################
+
+use FindBin;
+use lib "$FindBin::Bin";
+use Ricopili::Utils qw(trans);
+
+foreach (@ARGV) {
+    /.gz$/ and -f or die "Argument $_ is not a .gz file; aborting";
+}
+
+# Processing
+
+# Derived from https://metacpan.org/source/ROSCH/String-ShellQuote-1.04/ShellQuote.pm
+# (Artistic License)
+sub shell_quote($) {
+    $_ = $_[0];
+    my $escape = 0;
+
+    if (m|[^\w!%+,\-./:=@^]|) {
+        # ' -> '\''
+        s/'/'\\''/g;
+
+        # make multiple ' in a row look simpler
+        # '\'''\'''\'' -> '"'''"'
+        s|((?:'\\''){2,})|q{'"} . (q{'} x (length($1) / 4)) . q{"'}|ge;
+
+        $_ = "'$_'";
+        s/^''//;
+        s/''$//;
+    }
+    return $_;
+}
+
+my $minimac = trans("minimac4loc") . "/minimac4";
+
+foreach my $file (@ARGV) {
+    my $file_msav = $file.".msav";
+
+
+
+    print STDERR "$progname: processing $file with Minimac4 (into $file_msav)" if ($debug);
+    my $sys_cmd = "$minimac --compress-reference $file > $file_msav\n";
+#    exit;
+    
+    system($sys_cmd) == 0 or die "Minimac4 processing of reference failed; aborting";
+
+    system("touch",
+	   "$file_msav.fini");
+}

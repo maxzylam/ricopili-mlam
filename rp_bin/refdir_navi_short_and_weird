@@ -99,6 +99,8 @@ my $hmloc = &trans("hmloc");
 my $email = &trans("email");
 my $loloc = &trans("loloc");
 my $bcrloc = &trans("bcrloc");
+
+
 my $bcmd = &trans("batch_jobcommand");
 
 #######################################
@@ -179,8 +181,6 @@ GetOptions(
     "bn_job=i"=> \$job_bn_th,
     "force1"=> \my $force1,
     "no_fasta"=> \my $no_fasta,
-    "no_mm4sh5"=> \my $nomm4sh5,
-    #    "mm4sh5"=> \my $mm4sh5,
     "vcf_templ=s"=> \$vcf_templ,
     "vcf_site=s"=> \$vcf_site,
     "mach_templ=s"=> \$mach_templ,
@@ -189,6 +189,7 @@ GetOptions(
     "imputepostfix=s"=> \$imp_phased_postfix,
     "help"=> \my $help,
     "debug"=> \my $debug,
+    "mm4sh5"=> \my $mm4sh5,
     "noprio"=> \my $noprio,
     "chr=i"=> \my $sichr,
     "begchr=i"=> \my $begchr,
@@ -202,6 +203,7 @@ GetOptions(
     "walltimeplus=i"=> \$walltimeplus,
     "serial"=> \my $serial_sw,
     "sepa=i"=> \$sepa,
+
     
     );
 
@@ -230,7 +232,6 @@ my $prepvcf_script_imp2 = "my.prepvcf_imp2";          ### my.pipeline_tar
 my $prepmm_script_bgz = "prepare_ref_mm_bgz";         ### my.pipeline_tar
 my $prepmm_script_tabix = "prepare_ref_mm_tabix";     ### my.pipeline_tar
 my $prepmm_script_m3vcf = "prepare_ref_mm_m3vcf";     ### my.pipeline_tar
-my $prepmm_script_m4 = "prepare_ref_mm4";     ### my.pipeline_tar
 my $vcf2bcf_script = "vcf2bcf";                       ### my.pipeline_tar
 my $filtnorm_translate_script = "filtnorm_translate_changes";                 ### my.pipeline_tar
 my $filtnorm_filter_script = "filtnorm_filter";                 ### my.pipeline_tar
@@ -360,6 +361,14 @@ version: $rp_version
         --help               this help-text
         --debug              some more detailed output
         --outname STRING     just as identifier
+
+
+### sep 2023
+
+        --mm4sh5             make a reference for minimac4 and shapeit5 (don't do the minimac3 reference)
+
+####
+
         --sample_root STRING file with identifiers and sex and ancestry, e.g. integrated_call_samples_v3.20130502.ALL.panel
         --out_templ STRING   outname as temlate, e.g. ALL.august.chrXXX.recal.vrcut.EUR.beagle.vcf.imp
         --vcf_templ STRING   vcf template, 
@@ -367,7 +376,11 @@ version: $rp_version
 
         --mach_templ STRING mach template, 20101123.chrXXX, pointing to 20101123.chrXXX.hap.gz, 20101123.chrXXX.map and chrXXX.annotation.txt  
 
-        --imp2_templ STRING  impute2 template, 20101123.chrXX, pointing to 20101123.chrXXX.hap.gz, 20101123.chrXXX.legend.gz  
+        --imp2_templ STRING  impute2 template, 20101123.chrXX, pointing to 20101123.chrXXX.hap.gz, 20101123.chrXXX.legend.gz
+
+
+
+
 
            e.g. /humgen/1kg/processing/allPopulations_wholeGenome_august_release/calls/chrXXX/ALL.august.chrXXX.recal.vrcut.EUR.beagle.vcf
 
@@ -394,12 +407,6 @@ version: $rp_version
         --no_fasta        skip the fasta alignment, that's necessary for special references
                                    and minimac
 
-
-
-         --no_mm4sh5        do NOT make a reference for minimac4 and shapeit5 (don't do the minimac3 reference)
-
-
-
         --mhead INT       discard INT header rows, defailt: $mhc_head
 
         --q16 STRING      take phased reference for 16q22:
@@ -415,6 +422,8 @@ version: $rp_version
         --serial          no sending jobs to queue all in one run
                               -> usually only used for testing 
         --sepa INT        use INT number of parallel jobs during serial
+
+
 
 
         --walltimeplus INT  increase walltime by INT hours (important for bigger reference files), 
@@ -838,7 +847,6 @@ my @job_btools1 = ();
 my @job_prepmm_bgz = ();
 my @job_prepmm_tabix = ();
 my @job_prepmm_m3vcf = ();
-my @job_prepmm4 = ();
 my @job_vcf2bcf = ();
 my @job_filtnormtra = ();
 my @job_filtnormfil = ();
@@ -1211,9 +1219,6 @@ unless ($mhc){
 	print RT "vcf_site      $vcf_site\n";
 	print RT "vcf_template  $vcf_templ\n";
 	print RT "out_template  $out_templ\n";
-	unless ($nomm4sh5){
-	    print RT "mm4  ON\n";
-	}
 	
 	close RT;
     }
@@ -2038,7 +2043,7 @@ foreach my $chrint ($chr_start..$chr_end){
     my $vcf_name_loc_filtnorm_prep_bgz_fini = $filtnorm_trans_file.".bgz.fini";
 
     unless (-e $vcf_name_loc_filtnorm_prep_bgz_fini) {
-	my $sys = "$prepmm_script_bgz $filtnorm_trans_file";  # prepare_ref_mm_bgz
+	my $sys = "$prepmm_script_bgz $filtnorm_trans_file"; # prepare_ref_mm_bgz
 	push @job_prepmm_bgz, $sys;
     }
 
@@ -2053,405 +2058,31 @@ foreach my $chrint ($chr_start..$chr_end){
 	push @job_prepmm_tabix, $sys;
     }
 
-
-
-    ###############################################################
-    
-
-    my $vcf_name_loc = $filtnorm_trans_file;
-    $vcf_name_loc =~ s/\.vcf\.gz/.vcf.bgz/;;
-    my $bcf_name_loc = $filtnorm_trans_file;
-    $bcf_name_loc =~ s/\.vcf\.gz/.bcf.bgz/;;
-    my $bcf_name_loc_fini = $bcf_name_loc.".fini";
-
-    unless (-e $bcf_name_loc_fini) {
-
-	my $sys = "$vcf2bcf_script $vcf_name_loc";
-	push @job_vcf2bcf, $sys;
-#	print "$sys\n";
-    }
-
-    
     ###############################################################
 
 
-    if (0) {
+    ##  here a change from minimc3 to minimac4
+
+    my $filtnorm_trans_file = $changes_file;
+    $filtnorm_trans_file =~ s/legend.gz.rf.gz.changes.gz/vcf.gz/;
+
+    unless ($mm4sh5) {
 	my $vcf_name_loc_filtnorm_prep_m3vcf_fini = $filtnorm_trans_file.".m3vcf.fini";
+	
 	unless (-e $vcf_name_loc_filtnorm_prep_m3vcf_fini) {
 	    my $sys = "$prepmm_script_m3vcf $filtnorm_trans_file";
 	    push @job_prepmm_m3vcf, $sys;
 	}
     }
+    else {@job_prepmm_m3vcf;
 
-    
-    my $bcf_name_loc_fini = $bcf_name_loc.".msav.fini";
-    unless (-e $bcf_name_loc_fini) {
-	my $sys = "$prepmm_script_m4 $bcf_name_loc";
-#	print "$sys\n";
-	#	exit;
-	unless ($nomm4sh5){
-	    push @job_prepmm4, $sys;
-	}
-    }
 
-
-
-#    print "debug: $bcf_name_loc_fini\n";
-#    exit;
-
-    ########################################################################
-
-#    my $chunk_fini = $hapout_name.".legend.gz.chunks.fini";
-#    unless (-e $chunk_fini) {#
-	#	    print "plink: $plink_name\n";
-#	push @job_chunk, "$chunk_script --nsnps $chunksnps --legend $hapout_name.legend.gz --out $hapout_name.legend.gz.chunks";
-#    }
-#    push @chunks_collection, "$hapout_name.legend.gz.chunks";
-
-
-
-    ########################################################################
-    ## times 1
-    my $chunksnps_T3 = sprintf "%d", $chunksnps / 3;
-    my $chunk_fini_T3 = $hapout_name.".legend.gz.chunks_T3.fini";
-    unless (-e $chunk_fini_T3) {
-	#	    print "plink: $plink_name\n";
-	push @job_chunk, "$chunk_script --nsnps $chunksnps_T3 --legend $hapout_name.legend.gz --out $hapout_name.legend.gz.chunks_T3";
-    }
-    push @chunks_collection_T3, "$hapout_name.legend.gz.chunks_T3";
-
-
-    
-    ########################################################################
-    ## times 1
-    my $chunksnps_1 = $chunksnps * 1;
-    my $chunk_fini_1 = $hapout_name.".legend.gz.chunks_1.fini";
-    unless (-e $chunk_fini_1) {
-	#	    print "plink: $plink_name\n";
-	push @job_chunk, "$chunk_script --nsnps $chunksnps_1 --legend $hapout_name.legend.gz --out $hapout_name.legend.gz.chunks_1";
-    }
-    push @chunks_collection_1, "$hapout_name.legend.gz.chunks_1";
-
-
-    
-    ########################################################################
-    ## times 2
-    my $chunksnps_2 = $chunksnps * 2;
-    my $chunk_fini_2 = $hapout_name.".legend.gz.chunks_2.fini";
-    unless (-e $chunk_fini_2) {
-	#	    print "plink: $plink_name\n";
-	push @job_chunk, "$chunk_script --nsnps $chunksnps_2 --legend $hapout_name.legend.gz --out $hapout_name.legend.gz.chunks_2";
-    }
-    push @chunks_collection_2, "$hapout_name.legend.gz.chunks_2";
-
-
-
-
-
-    ########################################################################
-    ## times 5
-    my $chunksnps_5 = $chunksnps * 5;
-    my $chunk_fini_5 = $hapout_name.".legend.gz.chunks_5.fini";
-    unless (-e $chunk_fini_5) {
-	#	    print "plink: $plink_name\n";
-	push @job_chunk, "$chunk_script --nsnps $chunksnps_5 --legend $hapout_name.legend.gz --out $hapout_name.legend.gz.chunks_5";
-    }
-    push @chunks_collection_5, "$hapout_name.legend.gz.chunks_5";
-
-
-    ########################################################################
-    ## times 10
-    my $chunksnps_10 = $chunksnps * 10;
-    my $chunk_fini_10 = $hapout_name.".legend.gz.chunks_10.fini";
-    unless (-e $chunk_fini_10) {
-	#	    print "plink: $plink_name\n";
-	push @job_chunk, "$chunk_script --nsnps $chunksnps_10 --legend $hapout_name.legend.gz --out $hapout_name.legend.gz.chunks_10";
-    }
-    push @chunks_collection_10, "$hapout_name.legend.gz.chunks_10";
-
-    
-    ########################################################################
-    ## times 20
-    my $chunksnps_20 = $chunksnps * 20;
-    my $chunk_fini_20 = $hapout_name.".legend.gz.chunks_20.fini";
-    unless (-e $chunk_fini_20) {
-	#	    print "plink: $plink_name\n";
-	push @job_chunk, "$chunk_script --nsnps $chunksnps_20 --legend $hapout_name.legend.gz --out $hapout_name.legend.gz.chunks_20";
-    }
-    push @chunks_collection_20, "$hapout_name.legend.gz.chunks_20";
-
-
-
-
-    if (1) {
-	foreach my $pf_loc (@pop_fams) {
-	    
-	    my $freq_root = "$plink_name.freq.$pf_loc";
-	    my $keep_file = "$sample_fam.$pf_loc";
-
-	    my $bfile_pf = "$plink_name.$pf_loc";
-
-
-	    #		print "$pf_loc -> $bfile_pf\n";
-	    
-	    unless (-e "$bfile_pf.fini"){
-		#		    push @job_pobed, "$plink_script --bfile $plink_name --out $bfile_pf --keep $keep_file --make-bed --freq";
-		push @job_pobed, "$plinkanc_script --bfile $plink_name --out $bfile_pf --keep $keep_file";
-	    }
-	    
-
-
-	    #		unless (-e "$freq_root.frq"){
-
-	    #		    my $sys_f = "$plink_script --bfile $bfile_pf --out $freq_root --freq";
-	    #		    push @job_frq, "$sys_f";
-	    
-	    #		    if (0) {
-	    #			unless (-e "$keep_file.sex") {
-	    #			    print "create $keep_file.sex\n";
-	    #			    die $!."($keep_file)" unless open KI, "< $keep_file";
-	    #			    die $!."($keep_file.sex)" unless open KO, "> $keep_file.sex";
-	    #			    while (my $line = <KI>){
-	    #				my @cells = split /\s+/, $line;
-	    #				print KO "$cells[0]";
-	    #			    print KO "\t$cells[1]";
-	    #				print KO "\t$cells[9]";
-	    #				print KO "\n";
-	    #			    }
-	    #			    close KI;
-	    #			    close KO;
-	    #			}
-	    
-	    #			my $sys_f = "$plink_script --bfile $bgl_name --out $freq_root --keep $keep_file --freq --update-sex $keep_file.sex";
-	    #			push @job_frq, "$sys_f";
-	    #		    }
-	    #		    else {
-
-	    #		    }
-	    #		}
-
-
-
-
-	}
-    }
-}
-
-
-
-if ($exit == 1) {
-    print "exit due to error\n";
-    exit;
-
-}
-
-
-
-unless ($mhc){
-if (@job_vcf_dl > 0 ) {
-
-    #	print "starting gunzip/copy jobs\n";
-
-    $sjadir = $rootdir;
-    $sjaname = "vcf_download";
-    $sjatime = 2 + $walltimeplus;
-    $sjamem = 2000; 
-    @sjaarray = @job_vcf_dl;
-    
-    &send_jobarray;
-
-
-}
-
-
-#    if (@job_gm_dl > 0 ) {
-
-
-#	$sjadir = $rootdir;
-#	$sjaname = "gm_download";
-#	$sjatime = 1;
-#	$sjamem = 1000;
-#	@sjaarray = @job_gm_dl;
-
-#	&send_jobarray;
-
-
-#   }	
-
-if (@job_cpgz > 0 ) {
-
-    #	print "starting gunzip/copy jobs\n";
-
-    $sjadir = $rootdir;
-    $sjaname = "copyunzip";
-    $sjatime = 2 + $walltimeplus;
-    $sjamem = 2000;
-    @sjaarray = @job_cpgz;
-    
-    &send_jobarray;
-
-
-}
-
-
-
-if (@job_vtools > 0 ) {
-
-    #	print "starting 2impute jobs\n";
-
-    $sjadir = $rootdir;
-    $sjaname = "vcftools";
-    $sjatime = 2 + $walltimeplus;
-    $sjamem = 4000;
-    @sjaarray = @job_vtools;
-    
-    &send_jobarray;
-
-
-}
-
-if (@job_btools1 > 0 ) {
-
-    #	print "starting 2impute jobs\n";
-
-    $sjadir = $rootdir;
-    $sjaname = "bcftools_filtnorm";
-    $sjatime = 2 + $walltimeplus;
-    $sjamem = 2000;
-    @sjaarray = @job_btools1;
-    
-    &send_jobarray;
-
-
-}
-
-
-if (@job_filtnormfil > 0 ) {
-
-    #	print "starting 2impute jobs\n";
-
-    $sjadir = $rootdir;
-    $sjaname = "filter_filtnorm";
-    $sjatime = 2 + $walltimeplus;
-    $sjamem = 2000;
-    @sjaarray = @job_filtnormfil;
-    
-    &send_jobarray;
-
-
-}
-
-
-
-
-
-if (@job_btools2 > 0 ) {
-
-    #	print "starting 2impute jobs\n";
-
-    $sjadir = $rootdir;
-    $sjaname = "bcftools_impute2";
-    $sjatime = 2 + $walltimeplus;
-    $sjamem = 2000;
-    @sjaarray = @job_btools2;
-    
-    &send_jobarray;
-
-
-}  
-
-#    exit;
-
-
-if (0) {
-    if (@job_phased > 0 ) {
-	$sjadir = $rootdir;
-	$sjaname = "phased";
-	$sjatime = 2 + $walltimeplus;
-	$sjamem = 2000;
-	@sjaarray = @job_phased;
-	
-	&send_jobarray;
-    }
-    if (@job_bgl > 0 ) {
-	$sjadir = $rootdir;
-	$sjaname = "beagle";
-	$sjatime = 2 + $walltimeplus;
-	$sjamem = 4000;
-	@sjaarray = @job_bgl;
-	
-	&send_jobarray;
-    }
-}
-
-
-if (@job_plink > 0 ) {
-    $sjadir = $rootdir;
-    $sjaname = "vcf2plink";
-    $sjatime = 2 + $walltimeplus;
-    $sjamem = 2000;
-    @sjaarray = @job_plink;
-    
+    print ""
     &send_jobarray;
 }
 
 
-if (@job_refformat > 0 ) {
-
-
-    $sjadir = $rootdir;
-    $sjaname = "refformat";
-    $sjatime = 2 + $walltimeplus;
-    $sjamem = 2000;
-    @sjaarray = @job_refformat;
-    
-    &send_jobarray;
-
-}
-
-
-
-
-if (@job_filtnormtra > 0 ) {
-    
-    
-
-    $sjadir = $rootdir;
-    $sjaname = "trans_filtnorm";
-    $sjatime = 2 + $walltimeplus;
-    $sjamem = 2000;
-    @sjaarray = @job_filtnormtra;
-    
-    &send_jobarray;
-    
-    
-}
-
-
-if (@job_prepmm_bgz > 0 ) {
-    
-    
-    $sjadir = $rootdir;
-    $sjaname = "prep_minimac_bgz";
-    $sjatime = 2 + $walltimeplus;
-    $sjamem = 2000;  ## each core, so mem request for the node is multi that
-    @sjaarray = @job_prepmm_bgz;
-    
-    &send_jobarray;
-}
-
-if (@job_prepmm_tabix > 0 ) {
-    
-    
-    $sjadir = $rootdir;
-    $sjaname = "prep_minimac_tabix";
-    $sjatime = 2 ;
-    $sjamem = 2000;  ## each core, so mem request for the node is multi that
-    @sjaarray = @job_prepmm_tabix;
-    
-    &send_jobarray;
-}
-
+#exit;
 
 if (@job_vcf2bcf > 0 ) {
     
@@ -2467,37 +2098,6 @@ if (@job_vcf2bcf > 0 ) {
     
     
 }
-
-if (0) {
-if (@job_prepmm_m3vcf > 0 ) {
-    
-    
-    $sjadir = $rootdir;
-    $sjaname = "prep_minimac_m3vcf";
-    $sjatime = 2 + $walltimeplus * 10;
-#    $sjamulti = $ncpus_multi;
-    $sjamem = 24000;  ## each core, so mem request for the node is multi that
-    @sjaarray = @job_prepmm_m3vcf;
-    
-    &send_jobarray;
-}
-}
-
-if (@job_prepmm4 > 0 ) {
-    
-    
-    $sjadir = $rootdir;
-    $sjaname = "prep_minimac4";
-    $sjatime = 2 + $walltimeplus * 10;
-#    $sjamulti = $ncpus_multi;
-    $sjamem = 24000;  ## each core, so mem request for the node is multi that
-    @sjaarray = @job_prepmm4;
-    
-    &send_jobarray;
-}
-
-#exit;
-
 
 
 if (@job_chunk > 0 ) {
@@ -2733,9 +2333,6 @@ foreach my $pf_loc (@pop_fams) {
 	print RT "vcf_site      $vcf_site\n";
 	print RT "vcf_template  $vcf_templ\n";
 	print RT "out_template  $out_templ\n";
-	unless ($nomm4sh5){
-	    print RT "mm4  ON\n";
-	}
 	print RT "bfile_template  $out_templ.impute.plink.$pf_loc\n";
 	close RT;
     }

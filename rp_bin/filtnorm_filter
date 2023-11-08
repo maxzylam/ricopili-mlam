@@ -144,7 +144,9 @@ unless (-e $filtnorm_info) {
 	}
 	
 	$icc++;
-	print "$icc lines read\n" if ($icc % 10000 == 0) if ($debug);
+	if ($debug) {
+	    print "$icc lines read\n" if ($icc % 10000 == 0);
+	}
 	#    last if ($icc ==10000);
     }
     
